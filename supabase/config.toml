@@ -2,7 +2,15 @@
 project_id = "grlawnzcsrumnyzcziqw"
 
 [auth]
-# Disable email confirmation to allow immediate signups
+# Disable ALL auth restrictions
 enable_signup = true
 enable_confirmations = false
 enable_recoveries = true
+# Allow any email format
+email_confirm_required = false
+# Allow weak passwords
+password_min_length = 1
+# Disable email validation
+email_autoconfirm = true
+# Allow any email domain
+enable_email_signup = true
