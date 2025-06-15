@@ -19,7 +19,7 @@ export default function PublicPersonas() {
     const fetchPersonas = async () => {
       try {
         const { data, error } = await supabase
-          .from('public_personas' as any)
+          .from('public_personas')
           .select('id, first_name, avatar_url, agent_id, random_persona_name');
         
         if (error) {
@@ -31,7 +31,6 @@ export default function PublicPersonas() {
         setPersonas(data || []);
       } catch (error) {
         console.error('Error loading personas:', error);
-        // Show empty state instead of fallback data to see if real data loads
         setPersonas([]);
       } finally {
         setLoading(false);

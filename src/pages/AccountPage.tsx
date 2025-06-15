@@ -28,7 +28,7 @@ export default function AccountPage() {
 
       try {
         const { data, error } = await supabase
-          .from('profiles' as any)
+          .from('profiles')
           .select('*')
           .eq('id', user.id)
           .single();
