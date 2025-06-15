@@ -1,1 +1,8 @@
+
 project_id = "grlawnzcsrumnyzcziqw"
+
+[auth]
+# Disable email confirmation to allow immediate signups
+enable_signup = true
+enable_confirmations = false
+enable_recoveries = true
