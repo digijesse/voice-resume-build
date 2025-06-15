@@ -91,7 +91,8 @@ export default function AuthPage() {
         const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${signUpData.user.id}&scale=100`;
 
         // 5. Store in profiles
-        const { error: profileError } = await supabase.from("profiles").insert({
+        // --- TEMPORARY: force profiles table type as any.
+        const { error: profileError } = await (supabase.from as any)("profiles").insert({
           id: signUpData.user.id,
           email,
           first_name: firstName,
@@ -108,7 +109,7 @@ export default function AuthPage() {
 
         // 6. Insert in public_personas if public
         if (isPublic) {
-          await supabase.from("public_personas").upsert({
+          await (supabase.from as any)("public_personas").upsert({
             id: signUpData.user.id,
             first_name: firstName,
             random_persona_name: randomPersona,
