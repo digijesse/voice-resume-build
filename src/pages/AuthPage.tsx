@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { parsePdf } from "@/utils/pdfParser";
 
 const ELEVENLABS_SIGNUP_URL = "https://www.elevenlabs.io/signup";
 
@@ -25,19 +24,12 @@ export default function AuthPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [elevenLabsKey, setElevenLabsKey] = useState("");
-  const [openAIApiKey, setOpenAIApiKey] = useState("");
-  const [resume, setResume] = useState<File | null>(null);
+  const [bio, setBio] = useState("");
   const [isPublic, setIsPublic] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const navigate = useNavigate();
-
-  const handleResumeChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    setResume(file || null);
-    setErrorMsg("");
-  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +37,7 @@ export default function AuthPage() {
     setErrorMsg("");
 
     if (mode === "signup") {
-      if (!firstName.trim() || !elevenLabsKey.trim() || !openAIApiKey.trim() || !resume) {
+      if (!firstName.trim() || !elevenLabsKey.trim() || !bio.trim()) {
         setErrorMsg("All fields are required.");
         setLoading(false);
         return;
@@ -54,7 +46,7 @@ export default function AuthPage() {
 
     try {
       if (mode === "signup") {
-        // 1. Create user account in Supabase (NO redirect for email verification!)
+        // 1. Create user account in Supabase
         const { error: signUpError, data: signUpData } = await supabase.auth.signUp({
           email,
           password,
@@ -62,67 +54,53 @@ export default function AuthPage() {
         if (signUpError) throw signUpError;
         if (!signUpData.user) throw new Error("Sign up failed");
 
-        // 2. Upload resume to storage
-        let resumeUrl = "";
-        let parsedResumeText = "";
-        if (resume) {
-          const ext = resume.name.split(".").pop() || "pdf";
-          const filePath = `resumes/${signUpData.user.id}.${ext}`;
-          const { error: uploadError } = await supabase.storage
-            .from("resumes")
-            .upload(filePath, resume, { upsert: true });
-          if (uploadError) throw uploadError;
-          // Public URL
-          const publicUrl = supabase.storage.from("resumes").getPublicUrl(filePath).data.publicUrl;
-          resumeUrl = publicUrl || "";
-
-          // 3. Parse resume for text (PDF and TXT only, ignore docx for now)
-          if (resume.type === "application/pdf") {
-            parsedResumeText = await parsePdf(resume);
-          } else if (resume.type === "text/plain") {
-            parsedResumeText = await resume.text();
-          } else {
-            parsedResumeText = "";
-          }
-        }
-
-        // 4. Generate persona data
+        // 2. Generate persona data
         const randomPersona = randomPersonaName(firstName);
         const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${signUpData.user.id}&scale=100`;
 
-        // 5. Store in profiles
-        // --- TEMPORARY: force profiles table type as any.
-        const { error: profileError } = await (supabase.from as any)("profiles").insert({
+        // 3. Create ElevenLabs agent
+        const { data: agentData, error: agentError } = await supabase.functions.invoke('create-agent', {
+          body: {
+            apiKey: elevenLabsKey,
+            firstName: firstName,
+            bio: bio
+          }
+        });
+
+        if (agentError) throw agentError;
+        if (!agentData?.agent_id) throw new Error("Failed to create agent");
+
+        // 4. Store in profiles
+        const { error: profileError } = await supabase.from("profiles").insert({
           id: signUpData.user.id,
           email,
           first_name: firstName,
           last_name: lastName,
           elevenlabs_api_key: elevenLabsKey,
-          openai_api_key: openAIApiKey,
-          resume_file_url: resumeUrl,
-          resume_text_content: parsedResumeText,
+          bio: bio,
+          agent_id: agentData.agent_id,
           is_public: isPublic,
           random_persona_name: randomPersona,
           avatar_url: avatarUrl,
         });
         if (profileError) throw profileError;
 
-        // 6. Insert in public_personas if public
+        // 5. Insert in public_personas if public
         if (isPublic) {
-          await (supabase.from as any)("public_personas").upsert({
+          await supabase.from("public_personas").upsert({
             id: signUpData.user.id,
             first_name: firstName,
             random_persona_name: randomPersona,
             avatar_url: avatarUrl,
+            agent_id: agentData.agent_id,
           });
         }
 
-        // 7. Immediately sign in the new user (no need for email verification for MVP!)
-        const { error: signInError, data: signInData } =
-          await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
+        // 6. Sign in the new user
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
         if (signInError) throw signInError;
 
         toast.success("Welcome! Your PersonAI has been created.");
@@ -199,22 +177,12 @@ export default function AuthPage() {
                 onChange={(e) => setElevenLabsKey(e.target.value)}
                 autoComplete="off"
               />
-              <Input
-                type="text"
+              <textarea
                 required
-                placeholder="OpenAI API Key"
-                className="w-full"
-                value={openAIApiKey}
-                onChange={(e) => setOpenAIApiKey(e.target.value)}
-                autoComplete="off"
-              />
-              <input
-                type="file"
-                required
-                accept=".pdf,.txt,application/pdf,text/plain"
-                className="w-full file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-primary/90 file:text-primary-foreground hover:file:bg-primary"
-                onChange={handleResumeChange}
-                aria-label="Upload Resume"
+                placeholder="Tell us about yourself - your professional background, skills, experiences..."
+                className="w-full min-h-24 px-3 py-2 text-sm border border-input bg-background rounded-md placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
               />
               <div className="flex items-center gap-3">
                 <Switch
@@ -231,7 +199,7 @@ export default function AuthPage() {
 
           <Button type="submit" disabled={loading} className="w-full">
             {loading
-              ? "Loading..."
+              ? "Creating Your PersonAI..."
               : mode === "signup"
               ? "Create My PersonAI"
               : "Sign In"}
