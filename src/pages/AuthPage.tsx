@@ -79,9 +79,9 @@ export default function AuthPage() {
 
         console.log('Agent created successfully:', agentData.agent_id);
 
-        // 4. Store in profiles - using raw query to avoid type issues
+        // 4. Store in profiles table
         const { error: profileError } = await supabase
-          .from('profiles' as any)
+          .from('profiles')
           .insert({
             id: signUpData.user.id,
             email,
@@ -103,7 +103,7 @@ export default function AuthPage() {
         // 5. Insert in public_personas if public
         if (isPublic) {
           const { error: publicPersonaError } = await supabase
-            .from('public_personas' as any)
+            .from('public_personas')
             .upsert({
               id: signUpData.user.id,
               first_name: firstName,
