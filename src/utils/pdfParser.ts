@@ -1,7 +1,7 @@
 
 import * as pdfjsLib from "pdfjs-dist";
-import "pdfjs-dist/build/pdf.worker.entry"; // ensures pdf.worker works with Vite/webpack
 
+// For Vite: set workerSrc to the CDN. Do not import any worker files.
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${(pdfjsLib as any).version}/pdf.worker.min.js`;
 
 export async function parsePdf(file: File): Promise<string> {
