@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -46,19 +45,44 @@ export default function AuthPage() {
 
     try {
       if (mode === "signup") {
-        // 1. Create user account in Supabase
+        // 1. Create user account without email confirmation
         const { error: signUpError, data: signUpData } = await supabase.auth.signUp({
           email,
           password,
+          options: {
+            emailRedirectTo: undefined, // Disable email confirmation completely
+            data: {
+              first_name: firstName,
+              last_name: lastName
+            }
+          }
         });
-        if (signUpError) throw signUpError;
+        
+        if (signUpError) {
+          console.error('Signup error:', signUpError);
+          throw signUpError;
+        }
         if (!signUpData.user) throw new Error("Sign up failed");
 
-        // 2. Generate persona data
+        console.log('User created:', signUpData.user.id);
+
+        // 2. Immediately confirm the user using our edge function
+        const { error: confirmError } = await supabase.functions.invoke('confirm-user', {
+          body: { user_id: signUpData.user.id }
+        });
+
+        if (confirmError) {
+          console.error('User confirmation error:', confirmError);
+          // Continue anyway - user might still be able to sign in
+        } else {
+          console.log('User confirmed successfully');
+        }
+
+        // 3. Generate persona data
         const randomPersona = randomPersonaName(firstName);
         const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${signUpData.user.id}&scale=100`;
 
-        // 3. Create ElevenLabs agent
+        // 4. Create ElevenLabs agent
         console.log('Creating agent with data:', { firstName, bio: bio.substring(0, 50) + '...' });
         const { data: agentData, error: agentError } = await supabase.functions.invoke('create-agent', {
           body: {
@@ -79,7 +103,7 @@ export default function AuthPage() {
 
         console.log('Agent created successfully:', agentData.agent_id);
 
-        // 4. Store in profiles table
+        // 5. Store in profiles table
         const { error: profileError } = await supabase
           .from('profiles')
           .insert({
@@ -100,7 +124,7 @@ export default function AuthPage() {
           throw profileError;
         }
 
-        // 5. Insert in public_personas if public
+        // 6. Insert in public_personas if public
         if (isPublic) {
           const { error: publicPersonaError } = await supabase
             .from('public_personas')
@@ -118,12 +142,20 @@ export default function AuthPage() {
           }
         }
 
-        // 6. Sign in the new user
+        // 7. Sign in the new user (should work now that they're confirmed)
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (signInError) throw signInError;
+        
+        if (signInError) {
+          console.error('Sign in error:', signInError);
+          // If sign in fails, still show success and let them manually sign in
+          toast.success("Account created successfully! Please sign in.");
+          setMode("signin");
+          setLoading(false);
+          return;
+        }
 
         toast.success("Welcome! Your PersonAI agent has been created and is ready to chat.");
         navigate("/personas");
@@ -133,7 +165,10 @@ export default function AuthPage() {
           email,
           password,
         });
-        if (error) throw error;
+        if (error) {
+          console.error('Sign in error:', error);
+          throw error;
+        }
         if (data.user) {
           navigate("/");
         }
