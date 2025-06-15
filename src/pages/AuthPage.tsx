@@ -1,5 +1,5 @@
 
-import { useState, ChangeEvent } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,7 @@ export default function AuthPage() {
         const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${signUpData.user.id}&scale=100`;
 
         // 3. Create ElevenLabs agent
+        console.log('Creating agent with data:', { firstName, bio: bio.substring(0, 50) + '...' });
         const { data: agentData, error: agentError } = await supabase.functions.invoke('create-agent', {
           body: {
             apiKey: elevenLabsKey,
@@ -67,33 +68,54 @@ export default function AuthPage() {
           }
         });
 
-        if (agentError) throw agentError;
-        if (!agentData?.agent_id) throw new Error("Failed to create agent");
+        if (agentError) {
+          console.error('Agent creation error:', agentError);
+          throw agentError;
+        }
+        if (!agentData?.agent_id) {
+          console.error('No agent_id in response:', agentData);
+          throw new Error("Failed to create agent - no agent ID returned");
+        }
 
-        // 4. Store in profiles
-        const { error: profileError } = await supabase.from("profiles").insert({
-          id: signUpData.user.id,
-          email,
-          first_name: firstName,
-          last_name: lastName,
-          elevenlabs_api_key: elevenLabsKey,
-          bio: bio,
-          agent_id: agentData.agent_id,
-          is_public: isPublic,
-          random_persona_name: randomPersona,
-          avatar_url: avatarUrl,
-        });
-        if (profileError) throw profileError;
+        console.log('Agent created successfully:', agentData.agent_id);
+
+        // 4. Store in profiles - using raw query to avoid type issues
+        const { error: profileError } = await supabase
+          .from('profiles' as any)
+          .insert({
+            id: signUpData.user.id,
+            email,
+            first_name: firstName,
+            last_name: lastName || null,
+            elevenlabs_api_key: elevenLabsKey,
+            bio: bio,
+            agent_id: agentData.agent_id,
+            is_public: isPublic,
+            random_persona_name: randomPersona,
+            avatar_url: avatarUrl,
+          });
+
+        if (profileError) {
+          console.error('Profile creation error:', profileError);
+          throw profileError;
+        }
 
         // 5. Insert in public_personas if public
         if (isPublic) {
-          await supabase.from("public_personas").upsert({
-            id: signUpData.user.id,
-            first_name: firstName,
-            random_persona_name: randomPersona,
-            avatar_url: avatarUrl,
-            agent_id: agentData.agent_id,
-          });
+          const { error: publicPersonaError } = await supabase
+            .from('public_personas' as any)
+            .upsert({
+              id: signUpData.user.id,
+              first_name: firstName,
+              random_persona_name: randomPersona,
+              avatar_url: avatarUrl,
+              agent_id: agentData.agent_id,
+            });
+
+          if (publicPersonaError) {
+            console.error('Public persona creation error:', publicPersonaError);
+            // Don't throw here - profile is more important than public visibility
+          }
         }
 
         // 6. Sign in the new user
@@ -103,8 +125,8 @@ export default function AuthPage() {
         });
         if (signInError) throw signInError;
 
-        toast.success("Welcome! Your PersonAI has been created.");
-        navigate("/account");
+        toast.success("Welcome! Your PersonAI agent has been created and is ready to chat.");
+        navigate("/personas");
       } else {
         // Sign in
         const { error, data } = await supabase.auth.signInWithPassword({
@@ -117,6 +139,7 @@ export default function AuthPage() {
         }
       }
     } catch (err: any) {
+      console.error('Auth error:', err);
       setErrorMsg(err.message || "Something went wrong.");
     } finally {
       setLoading(false);

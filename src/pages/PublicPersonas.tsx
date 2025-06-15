@@ -19,30 +19,20 @@ export default function PublicPersonas() {
     const fetchPersonas = async () => {
       try {
         const { data, error } = await supabase
-          .from('public_personas')
+          .from('public_personas' as any)
           .select('id, first_name, avatar_url, agent_id, random_persona_name');
         
-        if (error) throw error;
+        if (error) {
+          console.error('Error fetching personas:', error);
+          throw error;
+        }
+        
+        console.log('Fetched personas:', data);
         setPersonas(data || []);
       } catch (error) {
-        console.error('Error fetching personas:', error);
-        // Fallback to demo data if there's an error
-        setPersonas([
-          { 
-            id: "1", 
-            first_name: "Alex", 
-            avatar_url: "https://api.dicebear.com/7.x/pixel-art/svg?seed=1", 
-            agent_id: null,
-            random_persona_name: "Alex Engineer Lion"
-          },
-          { 
-            id: "2", 
-            first_name: "Taylor", 
-            avatar_url: "https://api.dicebear.com/7.x/pixel-art/svg?seed=2", 
-            agent_id: null,
-            random_persona_name: "Taylor Creator Eagle"
-          },
-        ]);
+        console.error('Error loading personas:', error);
+        // Show empty state instead of fallback data to see if real data loads
+        setPersonas([]);
       } finally {
         setLoading(false);
       }
@@ -53,9 +43,11 @@ export default function PublicPersonas() {
 
   const handlePersonaClick = (persona: Persona) => {
     if (persona.agent_id) {
+      console.log('Opening ElevenLabs chat for agent:', persona.agent_id);
       window.open(`https://elevenlabs.io/app/talk-to?agent_id=${persona.agent_id}`, '_blank');
     } else {
-      console.log('No agent ID available for this persona');
+      console.log('No agent ID available for this persona:', persona);
+      alert('This persona does not have an active agent yet.');
     }
   };
 
@@ -63,9 +55,16 @@ export default function PublicPersonas() {
     <Layout>
       <div className="max-w-screen-lg mx-auto px-6 py-16">
         <h2 className="text-3xl font-bold text-primary mb-8">Public PersonAIs</h2>
+        
+        {!loading && personas.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">No public PersonAIs yet. Be the first to create one!</p>
+          </div>
+        )}
+        
         <div className="grid gap-8 grid-cols-2 md:grid-cols-4 xl:grid-cols-6">
           {loading
-            ? Array.from({ length: 10 }).map((_, i) => (
+            ? Array.from({ length: 6 }).map((_, i) => (
                 <div
                   key={i}
                   className="flex flex-col items-center bg-card rounded-lg p-5 aspect-square animate-pulse"
