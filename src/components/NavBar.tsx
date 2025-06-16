@@ -1,35 +1,70 @@
 
-import { Link, useLocation } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuthState } from "../hooks/useAuthState";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "./ui/button";
+import { LogOut, User } from "lucide-react";
+import { toast } from "sonner";
 
 export default function NavBar() {
-  const location = useLocation();
   const { user } = useAuthState();
+  const navigate = useNavigate();
 
-  const navItems = [
-    { to: "/personas", label: "Public PersonAIs" },
-    { to: user ? "/account" : "/auth", label: user ? "My PersonAI" : "Sign Up / Sign In" },
-  ];
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      toast.error("Error signing out");
+    } else {
+      toast.success("Signed out successfully");
+      navigate("/");
+    }
+  };
 
   return (
-    <nav className="flex items-center justify-between h-16 px-6 max-w-screen-xl mx-auto">
-      <Link to="/" className="text-2xl font-extrabold tracking-tight text-primary select-none mr-4">
+    <nav className="max-w-screen-xl mx-auto px-6 py-4 flex justify-between items-center">
+      <Link to="/" className="text-2xl font-bold text-primary">
         PersonAI
       </Link>
-      <div className="flex gap-1">
-        {navItems.map((item) => (
+      <div className="flex items-center gap-6">
+        <Link
+          to="/personas"
+          className="text-muted-foreground hover:text-primary transition"
+        >
+          Public Personas
+        </Link>
+        {user ? (
+          <div className="flex items-center gap-4">
+            <Link
+              to="/create"
+              className="text-muted-foreground hover:text-primary transition"
+            >
+              Create Persona
+            </Link>
+            <Link
+              to="/account"
+              className="flex items-center gap-2 text-muted-foreground hover:text-primary transition"
+            >
+              <User className="h-4 w-4" />
+              Account
+            </Link>
+            <Button
+              onClick={handleSignOut}
+              variant="ghost"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </Button>
+          </div>
+        ) : (
           <Link
-            key={item.to}
-            to={item.to}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all
-              ${location.pathname === item.to
-                ? "bg-primary text-primary-foreground shadow"
-                : "hover:bg-accent hover:text-accent-foreground text-muted-foreground"}
-            `}
+            to="/auth"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
           >
-            {item.label}
+            Sign In
           </Link>
-        ))}
+        )}
       </div>
     </nav>
   );

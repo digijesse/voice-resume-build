@@ -24,7 +24,6 @@ export default function CreatePersona() {
   const [extractedText, setExtractedText] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
 
-  // If not logged in, redirect to /auth
   useEffect(() => {
     if (!user) {
       navigate("/auth");
@@ -35,7 +34,6 @@ export default function CreatePersona() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     const allowedTypes = [
       'application/pdf',
       'application/msword',
@@ -50,19 +48,16 @@ export default function CreatePersona() {
 
     setIsExtracting(true);
     try {
-      // Convert file to base64
       const base64Data = await new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onload = () => {
           const result = reader.result as string;
-          // Remove the data URL prefix (e.g., "data:application/pdf;base64,")
           const base64 = result.split(',')[1];
           resolve(base64);
         };
         reader.readAsDataURL(file);
       });
 
-      // Call the edge function to extract text
       const { data, error } = await supabase.functions.invoke('extract-document', {
         body: {
           base64Data,
@@ -109,7 +104,6 @@ export default function CreatePersona() {
     setOutputVisible(false);
 
     try {
-      // Create agent with ElevenLabs
       const { data: agentData, error: agentError } = await supabase.functions.invoke('create-agent', {
         body: {
           elevenlabs_api_key: eleven,
@@ -126,13 +120,14 @@ export default function CreatePersona() {
         throw new Error("Failed to create ElevenLabs agent");
       }
 
-      // Save profile to database
       const profileData = {
         id: user?.id,
         email: user?.email,
         first_name,
         elevenlabs_api_key: eleven,
+        openai_api_key: openai,
         bio,
+        resume_text: extractedText || bio,
         agent_id: agentData.agent_id,
         is_public: isPublic,
         random_persona_name: `${first_name} ${['Engineer', 'Designer', 'Developer', 'Consultant', 'Expert', 'Professional'][Math.floor(Math.random() * 6)]} ${['Lion', 'Eagle', 'Tiger', 'Wolf', 'Bear', 'Falcon'][Math.floor(Math.random() * 6)]}`,
@@ -147,7 +142,6 @@ export default function CreatePersona() {
         throw profileError;
       }
 
-      // If public, also add to public_personas
       if (isPublic) {
         const { error: publicError } = await supabase
           .from('public_personas')
@@ -167,7 +161,6 @@ export default function CreatePersona() {
       setOutputVisible(true);
       toast.success("PersonAI created successfully!");
       
-      // Redirect to account page after a delay
       setTimeout(() => {
         navigate("/account");
       }, 2000);
