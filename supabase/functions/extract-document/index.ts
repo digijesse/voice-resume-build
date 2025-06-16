@@ -13,14 +13,18 @@ Output only the extracted text. Do not add any commentary.
 If the document appears to be empty or unreadable, respond with "[[EMPTY_OR_UNREADABLE_DOCUMENT]]".`;
 
 Deno.serve(async (req) => {
+  console.log('Extract document function called');
+  
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     const { base64Data, mimeType } = await req.json();
+    console.log('Received request with mimeType:', mimeType);
 
     if (!base64Data || !mimeType) {
+      console.error('Missing base64Data or mimeType');
       return new Response(JSON.stringify({ error: 'Missing base64Data or mimeType' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 400,
@@ -28,35 +32,49 @@ Deno.serve(async (req) => {
     }
 
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    console.log('GEMINI_API_KEY available:', !!GEMINI_API_KEY);
+    
     if (!GEMINI_API_KEY) {
-      throw new Error('GEMINI_API_KEY is not set in Supabase secrets.');
+      console.error('GEMINI_API_KEY is not set in Supabase secrets.');
+      return new Response(JSON.stringify({ error: 'GEMINI_API_KEY is not configured' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500,
+      });
     }
 
-    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    console.log('Initializing GoogleGenAI...');
+    const ai = new GoogleGenAI(GEMINI_API_KEY);
 
     const filePart: Part = {
       inlineData: { data: base64Data, mimeType: mimeType },
     };
     const textInstructionPart: Part = { text: PROMPT_FOR_FILE_EXTRACTION };
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
-      contents: { parts: [filePart, textInstructionPart] },
-    });
+    console.log('Calling Gemini API...');
+    const response: GenerateContentResponse = await ai
+      .getGenerativeModel({ model: 'gemini-2.0-flash-exp' })
+      .generateContent([filePart, textInstructionPart]);
 
-    const extractedText = response.text;
+    console.log('Got response from Gemini');
+    const extractedText = response.response.text();
 
     if (!extractedText) {
-      throw new Error('No text extracted from document');
+      console.error('No text extracted from document');
+      return new Response(JSON.stringify({ error: 'No text extracted from document' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500,
+      });
     }
 
     if (extractedText.trim() === "[[EMPTY_OR_UNREADABLE_DOCUMENT]]") {
+      console.log('Document appears to be empty or unreadable');
       return new Response(JSON.stringify({ text: "The document appears to be empty or could not be read by the AI." }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
       });
     }
 
+    console.log('Successfully extracted text, length:', extractedText.length);
     return new Response(JSON.stringify({ text: extractedText }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
@@ -64,9 +82,12 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Edge Function Error:', error);
-    return new Response(JSON.stringify({ error: error.message || 'Unknown error' }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return new Response(JSON.stringify({ 
+      error: error.message || 'Unknown error',
+      details: error.toString()
+    }), {
       status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
