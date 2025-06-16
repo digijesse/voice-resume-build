@@ -8,11 +8,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { apiKey, firstName, bio } = await req.json();
+    const { resume_text, first_name, last_name, elevenlabs_api_key } = await req.json();
 
-    if (!apiKey || !firstName || !bio) {
+    if (!elevenlabs_api_key || !first_name) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: apiKey, firstName, bio' }),
+        JSON.stringify({ error: 'Missing required fields: elevenlabs_api_key, first_name' }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -20,21 +20,22 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('Creating ElevenLabs agent for:', firstName);
+    const fullName = `${first_name} ${last_name || ''}`.trim();
+    console.log('Creating ElevenLabs agent for:', fullName);
 
     // Create the agent using ElevenLabs API
     const agentResponse = await fetch('https://api.elevenlabs.io/v1/convai/agents/create', {
       method: 'POST',
       headers: {
-        'Xi-Api-Key': apiKey,
+        'Xi-Api-Key': elevenlabs_api_key,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         conversation_config: {
           agent: {
-            first_message: `Hi, I'm ${firstName}, ask me about my professional or educational history.`,
+            first_message: `Hi, I'm ${first_name}, ask me about my professional or educational history.`,
             prompt: {
-              prompt: bio
+              prompt: resume_text || `I'm ${fullName}. Ask me about my background and experience.`
             }
           }
         }

@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,10 +26,45 @@ export default function AuthPage() {
   const [elevenLabsKey, setElevenLabsKey] = useState("");
   const [bio, setBio] = useState("");
   const [isPublic, setIsPublic] = useState(true);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [showEmailVerification, setShowEmailVerification] = useState(false);
   const navigate = useNavigate();
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setResumeFile(e.target.files[0]);
+    }
+  };
+
+  const extractTextFromFile = async (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64Data = e.target?.result as string;
+        const base64String = base64Data.split(',')[1];
+        
+        try {
+          const { data, error } = await supabase.functions.invoke('extract-document', {
+            body: {
+              base64Data: base64String,
+              mimeType: file.type
+            }
+          });
+
+          if (error) throw error;
+          resolve(data.text || '');
+        } catch (error) {
+          console.error('Error extracting text:', error);
+          reject(error);
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,12 +81,23 @@ export default function AuthPage() {
 
     try {
       if (mode === "signup") {
-        // 1. Create user account without email confirmation
+        // Extract resume text if file is provided
+        let resumeText = "";
+        if (resumeFile) {
+          try {
+            resumeText = await extractTextFromFile(resumeFile);
+          } catch (error) {
+            console.error('Resume extraction failed:', error);
+            toast.error("Failed to extract resume text. Continuing without it.");
+          }
+        }
+
+        // 1. Create user account with proper email verification
         const { error: signUpError, data: signUpData } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: undefined, // Disable email confirmation completely
+            emailRedirectTo: `${window.location.origin}/`,
             data: {
               first_name: firstName,
               last_name: lastName
@@ -66,99 +113,93 @@ export default function AuthPage() {
 
         console.log('User created:', signUpData.user.id);
 
-        // 2. Immediately confirm the user using our edge function
-        const { error: confirmError } = await supabase.functions.invoke('confirm-user', {
-          body: { user_id: signUpData.user.id }
-        });
-
-        if (confirmError) {
-          console.error('User confirmation error:', confirmError);
-          // Continue anyway - user might still be able to sign in
-        } else {
-          console.log('User confirmed successfully');
-        }
-
-        // 3. Generate persona data
-        const randomPersona = randomPersonaName(firstName);
-        const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${signUpData.user.id}&scale=100`;
-
-        // 4. Create ElevenLabs agent
-        console.log('Creating agent with data:', { firstName, bio: bio.substring(0, 50) + '...' });
-        const { data: agentData, error: agentError } = await supabase.functions.invoke('create-agent', {
-          body: {
-            apiKey: elevenLabsKey,
-            firstName: firstName,
-            bio: bio
-          }
-        });
-
-        if (agentError) {
-          console.error('Agent creation error:', agentError);
-          throw agentError;
-        }
-        if (!agentData?.agent_id) {
-          console.error('No agent_id in response:', agentData);
-          throw new Error("Failed to create agent - no agent ID returned");
-        }
-
-        console.log('Agent created successfully:', agentData.agent_id);
-
-        // 5. Store in profiles table
+        // 2. Create profile entry
         const { error: profileError } = await supabase
           .from('profiles')
           .insert({
             id: signUpData.user.id,
-            email,
             first_name: firstName,
             last_name: lastName || null,
-            elevenlabs_api_key: elevenLabsKey,
-            bio: bio,
-            agent_id: agentData.agent_id,
-            is_public: isPublic,
-            random_persona_name: randomPersona,
-            avatar_url: avatarUrl,
           });
 
         if (profileError) {
           console.error('Profile creation error:', profileError);
-          throw profileError;
+          // Don't throw here - user account is created, profile can be created later
         }
 
-        // 6. Insert in public_personas if public
-        if (isPublic) {
-          const { error: publicPersonaError } = await supabase
-            .from('public_personas')
-            .upsert({
-              id: signUpData.user.id,
+        // 3. Create ElevenLabs agent and persona
+        try {
+          console.log('Creating agent with data:', { firstName, lastName, bio: bio.substring(0, 50) + '...' });
+          const { data: agentData, error: agentError } = await supabase.functions.invoke('create-agent', {
+            body: {
+              resume_text: resumeText || bio,
               first_name: firstName,
-              random_persona_name: randomPersona,
-              avatar_url: avatarUrl,
+              last_name: lastName || "",
+              elevenlabs_api_key: elevenLabsKey
+            }
+          });
+
+          if (agentError) {
+            console.error('Agent creation error:', agentError);
+            throw agentError;
+          }
+          if (!agentData?.agent_id) {
+            console.error('No agent_id in response:', agentData);
+            throw new Error("Failed to create agent - no agent ID returned");
+          }
+
+          console.log('Agent created successfully:', agentData.agent_id);
+
+          // 4. Generate persona data
+          const randomPersona = randomPersonaName(firstName);
+          const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${signUpData.user.id}&scale=100`;
+
+          // 5. Store persona data
+          const { error: personaError } = await supabase
+            .from('personas')
+            .insert({
+              user_id: signUpData.user.id,
+              first_name: firstName,
+              last_name: lastName || null,
+              is_public: isPublic,
+              resume_text: resumeText || bio,
               agent_id: agentData.agent_id,
+              elevenlabs_api_key: elevenLabsKey,
+              conversation_link: `https://elevenlabs.io/app/talk-to?agent_id=${agentData.agent_id}`,
+              avatar_url: avatarUrl,
             });
 
-          if (publicPersonaError) {
-            console.error('Public persona creation error:', publicPersonaError);
-            // Don't throw here - profile is more important than public visibility
+          if (personaError) {
+            console.error('Persona creation error:', personaError);
+            // Don't throw here - the main signup succeeded
           }
+
+          // 6. Update public personas if public
+          if (isPublic) {
+            const { error: publicPersonaError } = await supabase
+              .from('public_personas')
+              .upsert({
+                id: signUpData.user.id,
+                first_name: firstName,
+                random_persona_name: randomPersona,
+                avatar_url: avatarUrl,
+                agent_id: agentData.agent_id,
+              });
+
+            if (publicPersonaError) {
+              console.error('Public persona creation error:', publicPersonaError);
+              // Don't throw here - profile is more important than public visibility
+            }
+          }
+        } catch (agentError) {
+          console.error('Agent/Persona creation failed:', agentError);
+          toast.error("Account created but agent setup failed. You can complete setup later in your account page.");
         }
 
-        // 7. Sign in the new user (should work now that they're confirmed)
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        // Show email verification message
+        setShowEmailVerification(true);
+        toast.success("Account created successfully! Please check your email to verify your account before signing in.");
         
-        if (signInError) {
-          console.error('Sign in error:', signInError);
-          // If sign in fails, still show success and let them manually sign in
-          toast.success("Account created successfully! Please sign in.");
-          setMode("signin");
-          setLoading(false);
-          return;
-        }
-
-        toast.success("Welcome! Your PersonAI agent has been created and is ready to chat.");
-        navigate("/personas");
       } else {
         // Sign in
         const { error, data } = await supabase.auth.signInWithPassword({
@@ -167,9 +208,12 @@ export default function AuthPage() {
         });
         if (error) {
           console.error('Sign in error:', error);
-          throw error;
-        }
-        if (data.user) {
+          if (error.message.includes('Email not confirmed')) {
+            setErrorMsg("Please check your email and click the verification link before signing in.");
+          } else {
+            throw error;
+          }
+        } else if (data.user) {
           navigate("/");
         }
       }
@@ -180,6 +224,23 @@ export default function AuthPage() {
       setLoading(false);
     }
   };
+
+  if (showEmailVerification) {
+    return (
+      <div className="max-w-md mx-auto w-full px-6 py-16">
+        <div className="bg-card border rounded-xl p-8 shadow text-center">
+          <h2 className="text-2xl font-bold text-primary mb-4">Check Your Email</h2>
+          <p className="text-muted-foreground mb-6">
+            We've sent a verification link to <strong>{email}</strong>. 
+            Please click the link in your email to verify your account, then return here to sign in.
+          </p>
+          <Button onClick={() => setShowEmailVerification(false)} className="w-full">
+            Return to Sign In
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-md mx-auto w-full px-6 py-16">
@@ -242,6 +303,15 @@ export default function AuthPage() {
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
               />
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Resume (PDF, optional)</label>
+                <Input
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileChange}
+                  className="w-full"
+                />
+              </div>
               <div className="flex items-center gap-3">
                 <Switch
                   id="isPublic"
@@ -273,7 +343,11 @@ export default function AuthPage() {
             : "Don't have an account? "}
           <button
             className="underline ml-1"
-            onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+            onClick={() => {
+              setMode(mode === "signup" ? "signin" : "signup");
+              setShowEmailVerification(false);
+              setErrorMsg("");
+            }}
             type="button"
           >
             {mode === "signup" ? "Sign in." : "Sign up now."}
